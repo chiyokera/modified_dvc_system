@@ -70,6 +70,7 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
+    #ログレベル（DEBAG,INFO,WARNING,ERRORの順、もっとあるけど）の数字を得る
     numeric_level = getattr(logging, args.loglevel.upper(), None)
     if not isinstance(numeric_level, int):
         raise ValueError('Invalid log level: %s' % args.loglevel)
@@ -85,6 +86,7 @@ if __name__ == '__main__':
 
     wandb.config.update(args)
 
+    #ファイルに出力（log_path）するログハンドラ、コンソール（多分ターミナル）に出力するハンドラの二つを設定
     logging.basicConfig(
         level=numeric_level,
         format=

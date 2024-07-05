@@ -23,6 +23,9 @@ def main(args):
 
     # create dataset
     if not args.test_only:
+        #Soccerner用の自分のpath, 映像の特徴量、versionは2がデフォ(trainとvalidってこと？)、window_sizeはSpottingの際のサイズ
+        #classificationと異なるデータセットを使用している点に注意
+        #trainとvalidには全フレームの束に対して、featureとアクションありかなしかが分かるリストが用意（self.game_feats, self.game_labels）
         dataset_Train = SoccerNetClips(path=args.SoccerNet_path, features=args.features, split=args.split_train, version=args.version, framerate=args.framerate, window_size=args.window_size_spotting)
         dataset_Valid = SoccerNetClips(path=args.SoccerNet_path, features=args.features, split=args.split_valid, version=args.version, framerate=args.framerate, window_size=args.window_size_spotting)
         dataset_Valid_metric  = dataset_Valid # SoccerNetClips(path=args.SoccerNet_path, features=args.features, split=args.split_valid, version=args.version, framerate=args.framerate, window_size=args.window_size_spotting)

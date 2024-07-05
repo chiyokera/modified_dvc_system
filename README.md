@@ -76,3 +76,4 @@ Codebase is adopted from Soccernet team's baseline https://github.com/SoccerNet/
 GPT2 model code is from Andrej Karpathy's awesome [nanoGPT repo](https://github.com/karpathy/nanoGPT).
 
 We would like to thank the SoccerNet team for organizing the challenge and providing the datasets. Special thanks to the Baidu team for the pre-extracted visual features.
+# research_system

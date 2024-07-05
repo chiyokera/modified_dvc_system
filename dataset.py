@@ -127,12 +127,15 @@ class SoccerNetClips(Dataset):
             feat_half2 = np.load(os.path.join(self.path, game, "2_" + self.features))
             feat_half2 = feat_half2.reshape(-1, feat_half2.shape[-1])
 
+            #1フレーム512次元のフレームが30フレーム束になり、それが「試合の全フレーム数÷ストライド」だけある
+            #オーバーラップなしでとりあえずwindowサイズ分だけとってきたようなイメージ[1~30,31~60,..]
             feat_half1 = feats2clip(torch.from_numpy(feat_half1), stride=self.window_size_frame, clip_length=self.window_size_frame)
             feat_half2 = feats2clip(torch.from_numpy(feat_half2), stride=self.window_size_frame, clip_length=self.window_size_frame)
 
             # Load labels
             labels = json.load(open(os.path.join(self.path, game, self.labels)))
 
+            #各30フレームのまとまりごとに、num_class=1より、(batch, 2) 成分は0のリストをつくる
             label_half1 = np.zeros((feat_half1.shape[0], self.num_classes+1))
             label_half1[:,0]=1 # those are BG classes
             label_half2 = np.zeros((feat_half2.shape[0], self.num_classes+1))
@@ -148,11 +151,13 @@ class SoccerNetClips(Dataset):
 
                 minutes, seconds = time.split(' ')[-1].split(':')
                 minutes, seconds = int(minutes), int(seconds)
+                #2:30、25fpsなら25×150s＝フレーム番号
                 frame = framerate * ( seconds + 60 * minutes ) 
 
                 
                 if event not in self.dict_event or half > 2:
                     continue
+                
                 label = self.dict_event[event]
 
                 # if label outside temporal of view
@@ -162,6 +167,9 @@ class SoccerNetClips(Dataset):
                     continue
 
                 if half == 1:
+                    #tたまたまアノテーションが付与されていたフレームが属している束に注目
+                    #注目フレームの束にイベントがアノテーションされていたら、[1,0]-->[0,1]
+                    #なのでスポッティングではlavel_half1[:,1]のみでOK、1ならアクションあり、0ならなし
                     label_half1[frame//self.window_size_frame][0] = 0 # not BG anymore
                     label_half1[frame//self.window_size_frame][label+1] = list(self.dict_event.keys()).index(event) + 1 # 0 is for no action
 
@@ -169,6 +177,7 @@ class SoccerNetClips(Dataset):
                     label_half2[frame//self.window_size_frame][0] = 0 # not BG anymore
                     label_half2[frame//self.window_size_frame][label+1] = list(self.dict_event.keys()).index(event) + 1 # that's my class
             
+            #アクションなしの束ももちろんありうる。
             self.game_feats.append(feat_half1)
             self.game_feats.append(feat_half2)
             self.game_labels.append(label_half1)
