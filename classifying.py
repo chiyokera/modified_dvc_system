@@ -38,8 +38,7 @@ def main(args):
                   window_size=args.window_size_spotting, 
                   vlad_k=args.vlad_k,
                   framerate=args.framerate, pool=args.pool, freeze_encoder=args.freeze_encoder, weights_encoder=args.weights_encoder,
-                  proj_size=feature_size[args.gpt_type]).cuda()
-    
+                  proj_size=feature_size[args.gpt_type]).cuda(args.GPU)
     
     logging.info(model)
     total_params = sum(p.numel()
@@ -66,6 +65,7 @@ def main(args):
     if not args.test_only:
         criterion = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.AdamW(model.parameters(), lr=args.LR)
+        
 
         #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', verbose=True, patience=args.patience)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
@@ -74,6 +74,6 @@ def main(args):
         trainer("classifying", train_loader, val_loader, val_metric_loader, 
                 model, optimizer, scheduler, criterion,
                 model_name=args.model_name,
-                max_epochs=10, evaluation_frequency=args.evaluation_frequency)
+                device = args.GPU, max_epochs=10, evaluation_frequency=args.evaluation_frequency)
 
     return 

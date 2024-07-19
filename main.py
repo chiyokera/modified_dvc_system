@@ -80,7 +80,7 @@ if __name__ == '__main__':
                             datetime.now().strftime('%Y-%m-%d_%H-%M-%S.log'))
 
     run = wandb.init(
-    project="DVC-SoccerNet",
+    project="GPT2-DVC-SoccerNet",
     #name=args.model_name,
     )
 
@@ -104,17 +104,19 @@ if __name__ == '__main__':
     start=time.time()
 
     if not args.freeze_encoder:
+       
+        # logging.info('Starting classifying function')
+       	# #args.weights_encoder = f"models/{args.model_name}/classifying/model.pth.tar" if args.pretrain else None
+        # classifying.main(args)
+        # logging.info(f'Total Execution Time is {time.time()-start} seconds')
 
-        logging.info('Starting classifying function')
-       	#args.weights_encoder = f"models/{args.model_name}/classifying/model.pth.tar" if args.pretrain else None
-        classifying.main(args)
-        logging.info(f'Total Execution Time is {time.time()-start} seconds')
+        
+        # logging.info('Starting cationing function')
+        # args.weights_encoder = f"models/{args.model_name}/classifying/model.pth.tar" if args.pretrain else None
+        # captioning.main(args)
+        # logging.info(f'Total Execution Time is {time.time()-start} seconds')
 
-        args.weights_encoder = f"models/{args.model_name}/classifying/model.pth.tar" if args.pretrain else None
-        captioning.main(args)
-        logging.info(f'Total Execution Time is {time.time()-start} seconds')
-
-        # # logging.info('Starting spotting function')
+        logging.info('Starting spotting function')
         args.weights_encoder = f"models/{args.model_name}/classifying/model.pth.tar" if args.pretrain else None
         spotting.main(args)
         logging.info(f'Total Execution Time is {time.time()-start} seconds')
