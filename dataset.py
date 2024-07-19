@@ -98,6 +98,7 @@ class SoccerNetClips(Dataset):
                 framerate=2, window_size=15):
         self.path = path
         self.listGames = getListGames(split, task="caption")
+        looper = self.listGames
         self.features = features
         self.window_size_frame = window_size*framerate
         self.version = version
@@ -106,22 +107,37 @@ class SoccerNetClips(Dataset):
         self.num_classes = num_classes
         self.dict_event = dict_event
 
-        logging.info("Checking/Download features and labels locally")
+        #logging.info("Checking/Download features and labels locally")
         downloader = SoccerNetDownloader(path)
-        for s in split:
-            if s == "challenge":
-                downloader.downloadGames(files=[f"1_{self.features}", f"2_{self.features}"], split=[s], task="caption", verbose=False,randomized=True)
-            else:
-                downloader.downloadGames(files=[self.labels, f"1_{self.features}", f"2_{self.features}"], split=[s], task="caption", verbose=False,randomized=True)
+        
+        #すでにデータある
+        # for s in split:
+        #     if s == "challenge":
+        #         downloader.downloadGames(files=[f"1_{self.features}", f"2_{self.features}"], split=[s], task="caption", verbose=False,randomized=True)
+        #     else:
+        #         downloader.downloadGames(files=[self.labels, f"1_{self.features}", f"2_{self.features}"], split=[s], task="caption", verbose=False,randomized=True)
 
         logging.info("Pre-compute clips")
 
         self.game_feats = list()
         self.game_labels = list()
-
+        
+        if split == ['train']:
+            logging.info("Loading train features")
+                
+        if split == ['valid']:
+            #なぜかvalidの最初の試合の前半がうまく読み込めなかったのでこの試合は飛ばす
+            #validなので精度に影響なし
+            looper = looper[1:]
+            logging.info("Loading valid features")
+            
+        if split == ['test']:
+            logging.info("Loading test features")
+            
         # NARY_CAPTION_V2 = {"corner" : 0,"substitution" : 0,"y-card" : 0,"whistle" : 0,"soccer-ball" : 0,"injury" : 0,"penalty" :
-        for game in tqdm(self.listGames):
+        for game in tqdm(looper):
             # Load features
+
             feat_half1 = np.load(os.path.join(self.path, game, "1_" + self.features))
             feat_half1 = feat_half1.reshape(-1, feat_half1.shape[-1])
             feat_half2 = np.load(os.path.join(self.path, game, "2_" + self.features))
@@ -220,13 +236,13 @@ class SoccerNetClipsTesting(Dataset):
         self.num_classes = num_classes
         self.dict_event = dict_event
 
-        logging.info("Checking/Download features and labels locally")
+        logging.info("SoccerNetClipTesting")
         downloader = SoccerNetDownloader(path)
-        for s in split:
-            if s == "challenge":
-                downloader.downloadGames(files=[f"1_{self.features}", f"2_{self.features}"], split=[s], task="caption", verbose=False,randomized=True)
-            else:
-                downloader.downloadGames(files=[self.labels, f"1_{self.features}", f"2_{self.features}"], split=[s], task="caption", verbose=False,randomized=True)
+        # for s in split:
+        #     if s == "challenge":
+        #         downloader.downloadGames(files=[f"1_{self.features}", f"2_{self.features}"], split=[s], task="caption", verbose=False,randomized=True)
+        #     else:
+        #         downloader.downloadGames(files=[self.labels, f"1_{self.features}", f"2_{self.features}"], split=[s], task="caption", verbose=False,randomized=True)
 
     def __getitem__(self, index):
         """
@@ -239,6 +255,7 @@ class SoccerNetClipsTesting(Dataset):
             label_half2 (np.array): labels (one-hot) for the 2nd half.
         """
         # Load features
+        logging.info("SoccerNetClipTesting: Loading test features")
         feat_half1 = np.load(os.path.join(self.path, self.listGames[index], "1_" + self.features))
         feat_half2 = np.load(os.path.join(self.path, self.listGames[index], "2_" + self.features))
 
@@ -311,8 +328,8 @@ class SoccerNetCaptions(Dataset):
         self.labels, self.num_classes, self.dict_event, _ = getMetaDataTask("caption", "SoccerNet", version)
 
         logging.info("Checking/Download features and labels locally")
-        downloader = SoccerNetDownloader(path)
-        downloader.downloadGames(files=[self.labels, f"1_{self.features}", f"2_{self.features}"], task="caption",split=split, verbose=False,randomized=True)
+        # downloader = SoccerNetDownloader(path)
+        # downloader.downloadGames(files=[self.labels, f"1_{self.features}", f"2_{self.features}"], task="caption",split=split, verbose=False,randomized=True)
 
         self.data = list()
         self.game_feats = list()
@@ -320,7 +337,14 @@ class SoccerNetCaptions(Dataset):
         l_pad = self.window_size_frame//2 + self.window_size_frame%2
         r_pad = self.window_size_frame//2 
         looper = self.listGames
-
+        if split == ['train']:
+            logging.info("Loading train features")
+            
+        if split == ['valid']:
+            logging.info("Loading valid features")
+            looper = looper[1:]
+        if split == ['test']:
+            logging.info("Loading test features")
         for game_id, game in enumerate(tqdm(looper)):
             # Load features
             feat_half1 = np.load(os.path.join(self.path, game, "1_" + self.features))
@@ -383,14 +407,14 @@ class SoccerNetCaptions(Dataset):
         corpus = [annotation['anonymized'] for game in getListGames(split, task="caption") for annotation in json.load(open(os.path.join(self.path, game, self.labels)))["annotations"]]
         return corpus
     
-    def detokenize(self, tokens, remove_EOS=False):
+    def detokenize(self, tokens, model_type = 'lstm', remove_EOS=False):
         """
         Args:
             tokens (List[int]): tokens of caption
         Returns:
             caption (string): string obtained after replacing each token by its corresponding word
         """
-        string = self.text_processor.detokenize(tokens)
+        string = self.text_processor.detokenize(tokens, model_type=model_type)
         return string
         #return string.rstrip(f" {self.text_processor.vocab.lookup_token(EOS_TOKEN)}") if remove_EOS else string
     
@@ -408,9 +432,9 @@ class SoccerNetClassification(Dataset):
         self.labels, self.num_classes, self.dict_event, _ = getMetaDataTask("caption", "SoccerNet", version)
         self.class_labels = [k for k in self.dict_event.keys()]
 
-        logging.info("Checking/Download features and labels locally")
-        downloader = SoccerNetDownloader(path)
-        downloader.downloadGames(files=[self.labels, f"1_{self.features}", f"2_{self.features}"], task="caption",split=split, verbose=False,randomized=True)
+        logging.info("SoccerNetClassification")
+        # downloader = SoccerNetDownloader(path)
+        # downloader.downloadGames(files=[self.labels, f"1_{self.features}", f"2_{self.features}"], task="caption",split=split, verbose=False,randomized=True)
 
         self.data = list()
         self.game_feats = list()
@@ -418,12 +442,29 @@ class SoccerNetClassification(Dataset):
         l_pad = self.window_size_frame//2 + self.window_size_frame%2
         r_pad = self.window_size_frame//2 
         looper = self.listGames
+        
+
+            
         # if split == ["train"]:
         #     looper = self.listGames[103:120]
         # else:
         #     looper = self.listGames[10:20]
+        
+        if split == ['train']:
+            logging.info("Loading train features")
+                
+        if split == ['valid']:
+            #なぜかvalidの最初の試合の前半がうまく読み込めなかったのでこの試合は飛ばす
+            #validなので精度に影響なし
+            looper = looper[1:]
+            logging.info("Loading valid features")
+            
+        if split == ['test']:
+            logging.info("Loading test features")
         for game_id, game in enumerate(tqdm(looper)):
             # Load features
+
+                
             feat_half1 = np.load(os.path.join(self.path, game, "1_" + self.features))
             feat_half1 = np.pad(feat_half1.reshape(-1, feat_half1.shape[-1]), ((l_pad, r_pad), (0, 0)), "edge")
             feat_half2 = np.load(os.path.join(self.path, game, "2_" + self.features))
@@ -497,8 +538,21 @@ class TikTokenTextProcessor(object):
     def __call__(self, text):
         return self.encode(text)
 
-    def detokenize(self, tokens):
-        return self.decode(tokens[0].tolist())
+    def detokenize(self, tokens, model_type= 'lstm'):
+        if model_type == 'lstm':
+            return self.decode(tokens)
+        elif model_type == 'gpt':
+            return self.decode(tokens[0].tolist())
+        
+        #mode_typeがlstmの場合
+        #list(model.sample(feats[idx]).detach().cpu()) = [tensor(29), tensor(222),...] の形、
+        #return self.decode(tokens)
+        
+        #model_typeがgptの場合
+        #list(model.sample(feats[idx]).detach().cpu()) = [tensor([58, 31519, ...])] の形、
+        #return self.decode(tokens[0].tolist())
+        
+    
         
 
 class SoccerNetTextProcessor(object):
@@ -543,16 +597,18 @@ class PredictionCaptions(Dataset):
         self.labels, _, self.dict_event, _ = getMetaDataTask("caption", "SoccerNet", version)
         self.split = split
 
-        logging.info("Checking/Download features and labels locally")
-        downloader = SoccerNetDownloader(self.path)
-        downloader.downloadGames(files=[f"1_{self.features}", f"2_{self.features}"], task="caption", split=split, verbose=False,randomized=True)
+        # downloader = SoccerNetDownloader(self.path)
+        # downloader.downloadGames(files=[f"1_{self.features}", f"2_{self.features}"], task="caption", split=split, verbose=False,randomized=True)
 
         self.data = list()
         self.game_feats = list()
 
         l_pad = self.window_size_frame//2 + self.window_size_frame%2
         r_pad = self.window_size_frame//2 
-
+        
+      
+        logging.info("Prediction Caption: Loading %s features" % split)
+            
         for game_id, game in enumerate(tqdm(self.listGames)):
             # Load features
             feat_half1 = np.load(os.path.join(self.path, game, "1_" + self.features))
@@ -562,7 +618,7 @@ class PredictionCaptions(Dataset):
             
             self.game_feats.append((feat_half1, feat_half2)) 
 
-            # Load labels
+            # spottingですでにchallengeで実践していたみたいなので、その結果を利用している
             preds = json.load(open(os.path.join(self.PredictionPath, game, "results_spotting.json")))
             
             for caption_id, annotation in enumerate(preds["predictions"]):
@@ -604,14 +660,14 @@ class PredictionCaptions(Dataset):
         return vfeats, clip_id[0], caption_id
 
 
-    def detokenize(self, tokens, remove_EOS=True):
+    def detokenize(self, tokens, model_type = 'lstm',remove_EOS=True):
         """
         Args:
             tokens (List[int]): tokens of caption
         Returns:
             caption (string): string obtained after replacing each token by its corresponding word
         """
-        string = self.text_processor.detokenize(tokens)
+        string = self.text_processor.detokenize(tokens, model_type=model_type)
         return string
         #return string.rstrip(f" {self.text_processor.vocab.lookup_token(EOS_TOKEN)}") if remove_EOS else string
     

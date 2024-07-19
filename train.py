@@ -13,12 +13,34 @@ from SoccerNet.Evaluation.utils import AverageMeter, getMetaDataTask
 import glob
 from utils import evaluate as evaluate_spotting
 from SoccerNet.Evaluation.DenseVideoCaptioning import evaluate as evaluate_dvc
-from nlgeval import NLGEval
+import numpy as np
+import evaluate
+#from nlgeval import NLGEval
 from torch.nn.utils.rnn import pack_padded_sequence
 
 import wandb
-
-caption_scorer = NLGEval(no_glove=True, no_skipthoughts=True)
+#nlg-evalが使えなかったためHaggingfaceのメトリクスを用意
+#入力は答え(ref: list)、予測生成文(pred: list)
+def caption_scorer(ref, pred, device):
+    device = f'cuda:{device}'
+    metrics = ['bleu', 'rouge', 'meteor', 'bertscore']
+    results = {}
+    for i in metrics:
+        metric = evaluate.load(i)
+        if i == 'bertscore':
+            result = metric.compute(predictions= pred, references= ref, device=device, model_type="distilbert-base-uncased")
+            result = {f'bert_{k}': round(np.mean(result[k]),5) for k in ['precision', 'recall', 'f1']}
+            results.update(result)
+            continue
+        result = metric.compute(predictions= pred, references= ref)
+        if i == 'bleu':   
+            result = {f'bleu{i+1}': round(result['precisions'][i], 5) for i in range(4)}
+            results.update(result)
+            continue
+        result = {k: round(v,5) for k,v in result.items() if type(v) != list}
+        results.update(result)
+        
+    return results
 
 def trainer(phase, train_loader,
             val_loader,
@@ -28,10 +50,11 @@ def trainer(phase, train_loader,
             scheduler,
             criterion,
             model_name,
+            device=0,
             max_epochs=1000,
             evaluation_frequency=20):
 
-    logging.info("start training")
+    logging.info("Start %s training" % phase)
 
     best_loss = 9e99
 
@@ -41,10 +64,11 @@ def trainer(phase, train_loader,
 
         # train for one epoch
         loss_training = train(phase, train_loader, model, criterion,
-                              optimizer, epoch + 1, train=True)
+                              optimizer, epoch + 1, device, train=True)
 
         # evaluate on validation set
-        loss_validation = train(phase, val_loader, model, criterion, optimizer, epoch + 1, train=False)
+        loss_validation = train(phase, val_loader, model, criterion, 
+                              optimizer, epoch + 1, device, train=False)
 
         state = {
             'epoch': epoch + 1,
@@ -74,7 +98,7 @@ def trainer(phase, train_loader,
             performance_validation = test(
                 val_metric_loader,
                 model,
-                model_name)
+                model_name, device)
 
             logging.info("Validation performance at epoch " +
                          str(epoch+1) + " -> " + str(performance_validation))
@@ -108,15 +132,16 @@ def trainer(phase, train_loader,
 
     return
 
-def train(phase, dataloader, model, criterion, optimizer, epoch, train=False):
+def train(phase, dataloader, model, criterion, optimizer, epoch, device=0, train=False):
 
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
-
+    
     # switch to train mode
     if train:
         model.train()
+        
     else:
         model.eval()
 
@@ -127,33 +152,40 @@ def train(phase, dataloader, model, criterion, optimizer, epoch, train=False):
             data_time.update(time.time() - end)
             if phase == "spotting":
                 feats, labels = batch
-                feats = feats.cuda()
-                labels = labels.cuda() # Bx2 (0, 7)
-                labels = labels[:, 1].long().cuda()
+                feats = feats.cuda(device)
+                labels = labels.cuda(device) # Bx2 (0, 7)
+                #label[:,1]は0~13(0はコメントなし、1~13はコメントありかつ、ラベル分類)
+                labels = labels[:, 1].long().cuda(device)
                 # compute output
                 output = model(feats) # Bx18
                 loss = criterion(output, labels)
             elif phase == "caption":
                 (feats, caption), lengths, mask, caption_or, cap_id = batch
-                caption = caption.cuda()
+                caption = caption.cuda(device)
                 target = caption[:, 1:] #remove SOS token
                 lengths = lengths - 1
                 #pack_padded_sequence to do less computation
                 target = pack_padded_sequence(target, lengths, batch_first=True, enforce_sorted=False)[0]
                 mask = pack_padded_sequence(mask[:, 1:], lengths, batch_first=True, enforce_sorted=False)[0]
-                feats = feats.cuda()
+                feats = feats.cuda(device)
                 # compute output
+                
                 output = model(feats, caption, lengths)
                 
                 loss = criterion(output[mask], target[mask])
+                
+                
             elif phase == "classifying":
                 feats, labels = batch
-                feats = feats.cuda()
-                labels = labels.cuda()
+                feats = feats.cuda(device)
+                labels = labels.cuda(device)
                 # compute output
+                
                 output = model(feats)
+                
                 # hand written NLL criterion
                 loss = criterion(output, labels)
+            
             else:
                 NotImplementedError()
             
@@ -196,7 +228,7 @@ def train(phase, dataloader, model, criterion, optimizer, epoch, train=False):
 
     return losses.avg
 
-def validate_spotting(dataloader, model, model_name):
+def validate_spotting(dataloader, model, model_name, device=0):
     batch_time = AverageMeter()
     data_time = AverageMeter()
 
@@ -209,7 +241,7 @@ def validate_spotting(dataloader, model, model_name):
         for i, (feats, labels) in t:
             # measure data loading time
             data_time.update(time.time() - end)
-            feats = feats.cuda()
+            feats = feats.cuda(device)
             
             labels = (labels > 0) * 1.0
             all_labels.append(labels.detach().numpy())
@@ -239,7 +271,7 @@ def validate_spotting(dataloader, model, model_name):
 
     return {"mAP-sklearn" : mAP}
 
-def validate_classifying(dataloader, model, model_name):
+def validate_classifying(dataloader, model, model_name, device=0):
     batch_time = AverageMeter()
     data_time = AverageMeter()
 
@@ -253,7 +285,7 @@ def validate_classifying(dataloader, model, model_name):
             for i, (feats, labels) in t:
                 # measure data loading time
                 data_time.update(time.time() - end)
-                feats = feats.cuda()
+                feats = feats.cuda(device)
 
                 # compute output
                 output = model(feats)
@@ -277,7 +309,7 @@ def validate_classifying(dataloader, model, model_name):
 
     return {"accuracy" : correct_predictions/total_predictions}
 
-def test_spotting(dataloader, model, model_name, save_predictions=True, NMS_window=30, NMS_threshold=0.5):
+def test_spotting(dataloader, model, model_name, save_predictions=True, NMS_window=30, NMS_threshold=0.5, device=0):
     
     split = '_'.join(dataloader.dataset.split)
     output_folder = f"outputs/{split}"
@@ -310,16 +342,17 @@ def test_spotting(dataloader, model, model_name, save_predictions=True, NMS_wind
                 start_frame = BS*b
                 end_frame = BS*(b+1) if BS * \
                     (b+1) < len(feat_half1) else len(feat_half1)
-                feat = feat_half1[start_frame:end_frame].cuda()
+                feat = feat_half1[start_frame:end_frame].cuda(device)
                 # output = model(feat)
                 # output = torch.nn.functional.softmax(output, dim=1)
                 output = model(feat)
-                output = torch.nn.functional.softmax(output, dim=1) # Bx18
+                output = torch.nn.functional.softmax(output, dim=1) # Bx14
                 #output = torch.stack([output[:, 0], 1-output[:, 0]], dim=1)
 
-                max_ind = torch.argmax(output[:, 1:], dim=1)+1 # Bx1
+                max_ind = torch.argmax(output[:, 1:], dim=1)+1 
+                #max_ind = (batch, 1) (+1をする意味は[1:]した瞬間にindexが1つ下がるから)
                 output = torch.stack([output[:, 0], output[torch.arange(output.size(0)), max_ind]], dim=1)
-
+                #output = (コメント無しの確率、コメントありかつ最も確信度が高いラベルの確率)
                 output = output.cpu().detach().numpy()
                 timestamp_long_half_1.append(output)
             timestamp_long_half_1 = np.concatenate(timestamp_long_half_1)
@@ -329,7 +362,7 @@ def test_spotting(dataloader, model, model_name, save_predictions=True, NMS_wind
                 start_frame = BS*b
                 end_frame = BS*(b+1) if BS * \
                     (b+1) < len(feat_half2) else len(feat_half2)
-                feat = feat_half2[start_frame:end_frame].cuda()
+                feat = feat_half2[start_frame:end_frame].cuda(device)
                 output = model(feat)
                 output = torch.nn.functional.softmax(output, dim=1)
                 #output = torch.stack([output[:, 0], 1-output[:, 0]], dim=1)
@@ -342,7 +375,7 @@ def test_spotting(dataloader, model, model_name, save_predictions=True, NMS_wind
             timestamp_long_half_2 = np.concatenate(timestamp_long_half_2)
 
 
-            timestamp_long_half_1 = timestamp_long_half_1[:, 1:]
+            timestamp_long_half_1 = timestamp_long_half_1[:, 1:] #最も確信度が高いラベルのみ(それでも0.3とかありえる)
             timestamp_long_half_2 = timestamp_long_half_2[:, 1:] # Bx1 
 
             batch_time.update(time.time() - end)
@@ -375,7 +408,8 @@ def test_spotting(dataloader, model, model_name, save_predictions=True, NMS_wind
                     nms_to = int(np.minimum(max_index+int(window/2), len(detections_tmp)))
                     detections_tmp[nms_from:nms_to] = -1
 
-                return np.transpose([indexes, MaxValues])
+                return np.transpose([indexes, MaxValues]) 
+                #転置、すなわち[[index_1, maxvalue_1],[index_2, maxvalue_2],...]
 
             framerate = dataloader.dataset.framerate
             get_spot = get_spot_from_NMS
@@ -385,7 +419,8 @@ def test_spotting(dataloader, model, model_name, save_predictions=True, NMS_wind
             json_data["predictions"] = list()
 
             for half, timestamp in enumerate([timestamp_long_half_1, timestamp_long_half_2]):
-                for l in range(dataloader.dataset.num_classes):
+                #timestamp_longは(batch, 最も確信度の高いラベルの確率)
+                for l in range(dataloader.dataset.num_classes):#l=0のみ
                     spots = get_spot(
                         timestamp[:, l], window=NMS_window*framerate, thresh=NMS_threshold) # l = 0 which is out[:, 1:][:, 0]
                     for spot in spots:
@@ -399,7 +434,7 @@ def test_spotting(dataloader, model, model_name, save_predictions=True, NMS_wind
 
                         prediction_data = dict()
                         prediction_data["gameTime"] = f'{half+1} - {int(minutes):02d}:{int(seconds):02d}'
-                        prediction_data["label"] = inv_dict[l]
+                        prediction_data["label"] = inv_dict[l] #inv_dict = {0: 'comments'}
 
                         prediction_data["position"] = str(int((frame_index/framerate)*1000))
                         prediction_data["half"] = str(half+1)
@@ -446,7 +481,7 @@ def test_spotting(dataloader, model, model_name, save_predictions=True, NMS_wind
     return results
 
 @torch.no_grad()
-def validate_captioning(dataloader, model, model_name):
+def validate_captioning(dataloader, model, model_name, device=0, model_type = 'gpt'):
     batch_time = AverageMeter()
     data_time = AverageMeter()
 
@@ -460,14 +495,19 @@ def validate_captioning(dataloader, model, model_name):
         for (feats, caption), lengths, mask, caption_or, cap_id in t:
             # measure data loading time
             data_time.update(time.time() - end)
-            feats = feats.cuda()
+            feats = feats.cuda(device)
+            #print(list(model.sample(feats[0]).detach().cpu()))
             #compute output string
-            output = [dataloader.dataset.detokenize(list(model.sample(feats[idx]).detach().cpu())) for idx in range(feats.shape[0])]
+            output = [dataloader.dataset.detokenize(list(model.sample(feats[idx]).detach().cpu()), model_type= model_type) for idx in range(feats.shape[0])]
             
-            all_outputs.extend(output)
-            all_labels.extend(caption_or)
-            print("Output:", output[0])
-            print("Labels:", caption_or[0])
+            #haggingfaceのEvaluationを使用する場合、
+            #ref(label)はappend(すなわち[[label1],[lebel2],...] にすべきらしい)
+            #一方pred(output)は[output1, output2,...] にすべきらしい
+            
+            all_outputs.append(output[0])
+            all_labels.append(caption_or)
+            # print("Output:", output[0])
+            # print("Labels:", caption_or[0])
             batch_time.update(time.time() - end)
             end = time.time()
 
@@ -478,11 +518,12 @@ def validate_captioning(dataloader, model, model_name):
             desc += f'(it:{data_time.val:.3f}s) '
             t.set_description(desc)
 
-    scores = caption_scorer.compute_metrics(ref_list=[all_labels,], hyp_list=all_outputs)
+    scores = caption_scorer(ref= all_labels, pred=all_outputs, device=device)
     return scores
 
 @torch.no_grad()
-def test_captioning(dataloader, model, model_name, output_filename = "results_dense_captioning.json", input_filename="results_spotting.json"):
+def test_captioning(dataloader, model, model_name, output_filename = "results_dense_captioning.json", 
+                    input_filename="results_spotting.json", device=0, model_type = 'lstm'):
     batch_time = AverageMeter()
     data_time = AverageMeter()
 
@@ -500,8 +541,8 @@ def test_captioning(dataloader, model, model_name, output_filename = "results_de
         for feats, game_id, cap_id in t:
             # measure data loading time
             data_time.update(time.time() - end)
-            feats = feats.cuda()
-            output = [dataloader.dataset.detokenize(list(model.sample(feats[idx]).detach().cpu())) for idx in range(feats.shape[0])]
+            feats = feats.cuda(device)
+            output = [dataloader.dataset.detokenize(list(model.sample(feats[idx]).detach().cpu()), model_type= model_type) for idx in range(feats.shape[0])]
             
             all_outputs.extend(output)
             all_index.extend([(i.item(), j.item()) for i, j in zip(game_id, cap_id)])

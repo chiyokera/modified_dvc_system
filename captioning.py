@@ -43,7 +43,7 @@ def main(args):
                   pool=args.pool,
                   num_layers=args.num_layers,
                   teacher_forcing_ratio=args.teacher_forcing_ratio, freeze_encoder=args.freeze_encoder, weights_encoder=args.weights_encoder,
-                  top_k=args.top_k).cuda()
+                  top_k=args.top_k).cuda(args.GPU)
     elif args.model_type == 'gpt':
         model = Video2CaptionGPT(vocab_size=dataset_Test.vocab_size, weights=args.load_weights, input_size=args.feature_dim,
                   vlad_k = args.vlad_k,
@@ -56,12 +56,12 @@ def main(args):
                   freeze_encoder=args.freeze_encoder,
                   top_k=args.top_k,
                   gpt_path=args.gpt_path,
-                  gpt_type=args.gpt_type).cuda()
+                  gpt_type=args.gpt_type).cuda(args.GPU)
         
     if args.continue_training:
         checkpoint = torch.load(os.path.join("models", args.model_name, "caption","model.pth.tar"))
         model.load_state_dict(checkpoint['state_dict'])
-        model = model.cuda()
+        model = model.cuda(args.GPU)
         logging.info("Model loaded from previous checkpoint")
         
     logging.info(model)
@@ -94,16 +94,19 @@ def main(args):
 
         # start training
         trainer("caption", train_loader, val_loader, val_metric_loader, 
-                model, optimizer, scheduler, criterion,
+                model, optimizer, scheduler, criterion, device=args.GPU,
                 model_name=args.model_name,
                 max_epochs=args.max_epochs, evaluation_frequency=args.evaluation_frequency)
-
+    else:
+        logging.info('Captioning test only')
+        
     # For the best model only
     checkpoint = torch.load(os.path.join("models", args.model_name, "caption","model.pth.tar"))
     model.load_state_dict(checkpoint['state_dict'])
-    model = model.cuda()
+    model = model.cuda(args.GPU)
 
-    # validate caption generation on groundtruth spots on multiple splits [test/challenge]
+    # ここで[test/challenge]データを用いて実際に生成を行っている。
+    # dvc(arg)でLooseとかTighttとかしらべる
     for split in args.split_test:
 
         dataset_Test  = SoccerNetCaptions(
@@ -119,18 +122,29 @@ def main(args):
             batch_size=args.batch_size, shuffle=False,
             num_workers=args.max_num_worker, pin_memory=True, collate_fn=collate_fn_padd)
 
-        results = validate_captioning(test_loader, model, args.model_name)
+        results = validate_captioning(test_loader, model, args.model_name, 
+                                      device=args.GPU, model_type = args.model_type)
         if results is None:
             continue
 
-        logging.info("Best Performance at end of training in generating captions")
-        logging.info(f'| Bleu_1: {results["Bleu_1"]}')
-        logging.info(f'| Bleu_2: {results["Bleu_2"]}')
-        logging.info(f'| Bleu_3: {results["Bleu_3"]}')
-        logging.info(f'| Bleu_4: {results["Bleu_4"]}')
-        logging.info(f'| METEOR: {results["METEOR"]}')
-        logging.info(f'| ROUGE_L: {results["ROUGE_L"]}')
-        logging.info(f'| CIDEr: {results["CIDEr"]}')
+        logging.info("Validate_captioning Best Performance at end of training in generating captions")
+        # logging.info(f'| Bleu_1: {results["Bleu_1"]}')
+        # logging.info(f'| Bleu_2: {results["Bleu_2"]}')
+        # logging.info(f'| Bleu_3: {results["Bleu_3"]}')
+        # logging.info(f'| Bleu_4: {results["Bleu_4"]}')
+        # logging.info(f'| METEOR: {results["METEOR"]}')
+        # logging.info(f'| ROUGE_L: {results["ROUGE_L"]}')
+        # logging.info(f'| CIDEr: {results["CIDEr"]}')
+        
+        logging.info(f'| Bleu_1: {results["bleu1"]}')
+        logging.info(f'| Bleu_2: {results["bleu2"]}')
+        logging.info(f'| Bleu_3: {results["bleu3"]}')
+        logging.info(f'| Bleu_4: {results["bleu4"]}')
+        logging.info(f'| METEOR: {results["meteor"]}')
+        logging.info(f'| ROUGE_L: {results["rougeL"]}')
+        logging.info(f'| Bertscore_precision: {results["bert_precision"]}')
+        logging.info(f'| Bertscore_precision: {results["bert_recall"]}')
+        logging.info(f'| Bertscore_precision: {results["bert_f1"]}')
 
         wandb.log({f"{k}_{split}_gt" : v for k, v in results.items()})
 
@@ -143,6 +157,7 @@ def dvc(args):
     for arg in vars(args):
         logging.info(arg.rjust(15) + " : " + str(getattr(args, arg)))
     logging.info("Starting DVC")
+    #正直ここでデータセットをダウンロードする必要はない
     dataset_Test  = SoccerNetCaptions(path=args.SoccerNet_path, features=args.features, split=args.split_test, version=args.version, framerate=args.framerate, window_size=args.window_size_caption)
 
     if args.feature_dim is None:
@@ -157,7 +172,7 @@ def dvc(args):
                   pool=args.pool,
                   num_layers=args.num_layers,
                   teacher_forcing_ratio=args.teacher_forcing_ratio, freeze_encoder=args.freeze_encoder, weights_encoder=args.weights_encoder,
-                  top_k=args.top_k).cuda()
+                  top_k=args.top_k).cuda(args.GPU)
     elif args.model_type == 'transformer':
         model = Video2CaptionTransformerImage(vocab_size=dataset_Test.vocab_size, weights=args.load_weights, input_size=args.feature_dim,
                   window_size=args.window_size_caption, 
@@ -168,7 +183,7 @@ def dvc(args):
                   teacher_forcing_ratio=args.teacher_forcing_ratio, 
                   freeze_encoder=args.freeze_encoder, 
                   weights_encoder=args.weights_encoder,
-                  top_k=args.top_k).cuda()
+                  top_k=args.top_k).cuda(args.GPU)
     elif args.model_type == 'gpt':
         model = Video2CaptionGPT(vocab_size=dataset_Test.vocab_size, weights=args.load_weights, input_size=args.feature_dim,
                   vlad_k = args.vlad_k,
@@ -182,7 +197,7 @@ def dvc(args):
                   top_k=args.top_k,
                   gpt_path=args.gpt_path,
                   gpt_type=args.gpt_type,
-                  ).cuda()
+                  ).cuda(args.GPU)
     logging.info(model)
     total_params = sum(p.numel()
                        for p in model.parameters() if p.requires_grad)
@@ -192,18 +207,21 @@ def dvc(args):
     # For the best model only
     checkpoint = torch.load(os.path.join("models", args.model_name, "caption","model.pth.tar"))
     model.load_state_dict(checkpoint['state_dict'])
-    model = model.cuda()
+    model = model.cuda(args.GPU)
 
     # generate dense caption on multiple splits [test/challenge]
+    # この時点ですでにoutput/challengeは終わっている？
     for split in args.split_test:
         PredictionPath = os.path.join("models", args.model_name, f"outputs/{split}")
-        dataset_Test  = PredictionCaptions(SoccerNetPath=args.SoccerNet_path, PredictionPath=PredictionPath, features=args.features, split=[split], version=args.version, framerate=args.framerate, window_size=args.window_size_caption)
+        dataset_Test  = PredictionCaptions(SoccerNetPath=args.SoccerNet_path, PredictionPath=PredictionPath, features=args.features, 
+                                           split=[split], version=args.version, framerate=args.framerate, window_size=args.window_size_caption)
 
         test_loader = torch.utils.data.DataLoader(dataset_Test,
             batch_size=args.batch_size, shuffle=False,
             num_workers=args.max_num_worker, pin_memory=True)
 
-        results = test_captioning(test_loader, model, args.model_name)
+        results = test_captioning(test_loader, model, args.model_name, 
+                                  device=args.GPU, model_type = args.model_type)
         if results is None:
             continue
 

@@ -95,12 +95,15 @@ def evaluate(SoccerNet_path, Predictions_path, prediction_file="results_spotting
                 closest_numpy[start:stop,c] = label_half_2[indexes[i],c]
         closests_numpy.append(closest_numpy)
 
-
+    #loose, tight, medimはδの値に関係している。
     if metric == "loose":
+        # [5,10,...,60]
         deltas=np.arange(12)*5 + 5
     elif metric == "tight":
+        # [1,2,3,4,5]
         deltas=np.arange(5)*1 + 1
     elif metric == "medium":
+        # [30]
         deltas = np.array([30])
     # Compute the performances
     a_mAP, a_mAP_per_class, a_mAP_visible, a_mAP_per_class_visible, a_mAP_unshown, a_mAP_per_class_unshown = average_mAP(targets_numpy, detections_numpy, closests_numpy, framerate, deltas=deltas)

@@ -36,11 +36,12 @@ def main(args):
         print("feature_dim found:", args.feature_dim)
     # create model
     feature_size = {"gpt2": 768, "gpt2-medium": 1024, "gpt2-large": 1280, "gpt2-xl": 1600}
+    #num_classes = len(dataset_Test.dict_event) = 13でした、Spottingでこれはあかんやろ
     model = Video2Spot(weights=args.load_weights, input_size=args.feature_dim,
                   num_classes=len(dataset_Test.dict_event), window_size=args.window_size_spotting, 
                   vlad_k=args.vlad_k,
                   framerate=args.framerate, pool=args.pool, freeze_encoder=args.freeze_encoder,
-                  weights_encoder=args.weights_encoder, proj_size=feature_size[args.gpt_type]).cuda()
+                  weights_encoder=args.weights_encoder, proj_size=feature_size[args.gpt_type]).cuda(args.GPU)
     logging.info(model)
     total_params = sum(p.numel()
                        for p in model.parameters() if p.requires_grad)
@@ -74,7 +75,7 @@ def main(args):
 
         # start training
         trainer("spotting", train_loader, val_loader, val_metric_loader, 
-                model, optimizer, scheduler, criterion,
+                model, optimizer, scheduler, criterion, device=args.GPU,
                 model_name=args.model_name,
                 max_epochs=15, evaluation_frequency=args.evaluation_frequency)
 
@@ -90,7 +91,7 @@ def main(args):
             batch_size=1, shuffle=False,
             num_workers=1, pin_memory=True)
 
-        results = test_spotting(test_loader, model=model, model_name=args.model_name, NMS_window=args.NMS_window, NMS_threshold=args.NMS_threshold)
+        results = test_spotting(test_loader, device=args.GPU, model=model, model_name=args.model_name, NMS_window=args.NMS_window, NMS_threshold=args.NMS_threshold)
         if results is None:
             continue
 
