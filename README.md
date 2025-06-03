@@ -1,4 +1,4 @@
-# My research model from SoccerNet 2024 - Dense Video Captioning
+# Model from SoccerNet 2024 - Dense Video Captioning 
 
 ## Introduction
 This repository modified version of the code and models for our SoccerNet 2024 Dense Video Captioning submission from [DeLTA Lab](https://sites.google.com/view/jmkang/about-our-lab) to my master research. The project leverages a BLIP-2 like architecture with GPT-2 model as a language model.
